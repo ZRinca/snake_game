@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Змейка</title>
+    <title id="name_game">Змейка</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <style>
@@ -87,15 +87,84 @@
     <div class="info">
         <span class="score">🍎 <span id="scoreDisplay">0</span></span>
         <span class="restart-hint">
-            <kbd>Space</kbd> рестарт &nbsp;·&nbsp; <kbd>WASD</kbd> / стрелки
+            <kbd>Space</kbd> <span id="restart_button_lang">рестарт</span> &nbsp;·&nbsp; <kbd>WASD</kbd> / <span id="controller_button_lang">стрелки</span>
         </span>
     </div>
 </div>
+
+<!-- Подключаем SDK Яндекс Игр -->
 <script src="/sdk.js"></script>
+
 <script>
-    async function initSDK() {
-        const ysdk = await YaGames.init();
-    };
+    var lang = 'ru'; // язык по умолчанию
+
+    // Функция применения языка ко всем текстам
+    function applyLanguage(lang) {
+        const texts = {
+            'ru': {
+                title: 'Змейка',
+                restart: 'рестарт',
+                controls: 'стрелки',
+                gameOver: '💀 ИГРА ОКОНЧЕНА',
+                win: '🏆 ПОБЕДА!',
+                restartMsg: 'Нажми ПРОБЕЛ для рестарта'
+            },
+            'en': {
+                title: 'Snake',
+                restart: 'restart',
+                controls: 'arrows',
+                gameOver: '💀 GAME OVER',
+                win: '🏆 YOU WIN!',
+                restartMsg: 'Press SPACE to restart'
+            },
+            'tr': {
+                title: 'Yılan',
+                restart: 'tekrar başlat',
+                controls: 'oklar',
+                gameOver: '💀 OYUN BİTTİ',
+                win: '🏆 KAZANDIN!',
+                restartMsg: 'Yeniden başlatmak için SPAÇA basın'
+            }
+        };
+        const t = texts[lang] || texts['en'];
+
+        document.title = t.title;
+        document.getElementById('restart_button_lang').textContent = t.restart;
+        document.getElementById('controller_button_lang').textContent = t.controls;
+
+        // Сохраняем все тексты для использования в канвасе
+        window.gameTexts = {
+            gameOver: t.gameOver,
+            win: t.win,
+            restart: t.restartMsg
+        };
+
+        // Если канвас уже отрисован, обновляем его (перерисовываем)
+        if (typeof drawCanvas === 'function') {
+            drawCanvas();
+        }
+    }
+
+    // Инициализация SDK
+    (async function() {
+        try {
+            const ysdk = await YaGames.init();
+            lang = ysdk.environment.i18n.lang;
+            applyLanguage(lang);
+            console.log('SDK готов, язык:', lang);
+
+            // Рекламу показывать по действию игрока, например, при клике.
+            // Здесь можно добавить кнопку или вызывать при game over.
+            // ysdk.adv.showFullscreenAdv(); // (закомментировано, чтобы не мешать)
+        } catch (err) {
+            console.error('Ошибка SDK:', err);
+            applyLanguage('en'); // запасной язык
+        }
+    })();
+</script>
+
+<!-- Игровая логика -->
+<script>
     (function() {
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -221,7 +290,8 @@
             drawCanvas();
         }
 
-        function drawCanvas() {
+        // Делаем функцию глобальной, чтобы её можно было вызвать из applyLanguage
+        window.drawCanvas = function() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // Сетка — очень бледная
@@ -301,13 +371,20 @@
                 ctx.font = 'bold 30px "Segoe UI", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                let msg = winFlag ? '🏆 ПОБЕДА!' : '💀 ИГРА ОКОНЧЕНА';
+
+                // Используем локализованные тексты с fallback на русский
+                const texts = window.gameTexts || {
+                    gameOver: '💀 ИГРА ОКОНЧЕНА',
+                    win: '🏆 ПОБЕДА!',
+                    restart: 'Нажми ПРОБЕЛ для рестарта'
+                };
+                let msg = winFlag ? texts.win : texts.gameOver;
                 ctx.fillText(msg, canvas.width/2, canvas.height/2 - 10);
                 ctx.font = '18px sans-serif';
                 ctx.fillStyle = '#000000';
-                ctx.fillText('Нажми ПРОБЕЛ для рестарта', canvas.width/2, canvas.height/2 + 40);
+                ctx.fillText(texts.restart, canvas.width/2, canvas.height/2 + 40);
             }
-        }
+        };
 
         if (!CanvasRenderingContext2D.prototype.roundRect) {
             CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, radii) {
@@ -375,6 +452,7 @@
         window.addEventListener('keydown', handleKey);
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+        // Запуск игры
         initGame();
         drawCanvas();
     })();
