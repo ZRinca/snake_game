@@ -46,6 +46,8 @@
             font-size: 18px;
             font-weight: 500;
             padding: 8px 0;
+            flex-wrap: wrap;
+            gap: 6px;
         }
         .score {
             background: #000000;
@@ -68,6 +70,12 @@
             font-size: 13px;
             font-weight: 700;
         }
+        .best-score {
+            font-size: 14px;
+            opacity: 0.6;
+            color: #000;
+            margin-top: 2px;
+        }
         @media (max-width: 480px) {
             .game-wrapper {
                 padding: 12px 12px 16px;
@@ -75,8 +83,6 @@
             .info {
                 font-size: 15px;
                 padding: 6px 0;
-                flex-wrap: wrap;
-                gap: 6px;
             }
         }
     </style>
@@ -90,15 +96,18 @@
             <kbd>Space</kbd> <span id="restart_button_lang">рестарт</span> &nbsp;·&nbsp; <kbd>WASD</kbd> / <span id="controller_button_lang">стрелки</span>
         </span>
     </div>
+    <div class="best-score" id="bestScoreDisplay">🏆 Рекорд: 0</div>
 </div>
 
-<!-- Подключаем SDK Яндекс Игр -->
 <script src="/sdk.js"></script>
 
 <script>
-    var lang = 'ru'; // язык по умолчанию
+    let ysdk = null;
+    let bestScore = 0;
+    let isAdShowing = false;
 
-    // Функция применения языка ко всем текстам
+    var lang = 'ru';
+
     function applyLanguage(lang) {
         const texts = {
             'ru': {
@@ -132,38 +141,79 @@
         document.getElementById('restart_button_lang').textContent = t.restart;
         document.getElementById('controller_button_lang').textContent = t.controls;
 
-        // Сохраняем все тексты для использования в канвасе
         window.gameTexts = {
             gameOver: t.gameOver,
             win: t.win,
             restart: t.restartMsg
         };
 
-        // Если канвас уже отрисован, обновляем его (перерисовываем)
         if (typeof drawCanvas === 'function') {
             drawCanvas();
         }
     }
 
-    // Инициализация SDK
     (async function() {
         try {
-            const ysdk = await YaGames.init();
+            ysdk = await YaGames.init();
             lang = ysdk.environment.i18n.lang;
             applyLanguage(lang);
             console.log('SDK готов, язык:', lang);
 
-            // Рекламу показывать по действию игрока, например, при клике.
-            // Здесь можно добавить кнопку или вызывать при game over.
-            // ysdk.adv.showFullscreenAdv(); // (закомментировано, чтобы не мешать)
+            if (ysdk.features && ysdk.features.LoadingAPI) {
+                await ysdk.features.LoadingAPI.ready();
+                console.log('Game Ready API вызван');
+            }
+
+            try {
+                const player = ysdk.getPlayer();
+                const data = await player.getData(['bestScore']);
+                if (data && data.bestScore !== undefined) {
+                    bestScore = Number(data.bestScore) || 0;
+                }
+                document.getElementById('bestScoreDisplay').textContent = '🏆 Рекорд: ' + bestScore;
+            } catch (e) {
+                console.warn('Не удалось загрузить рекорд:', e);
+            }
+
         } catch (err) {
             console.error('Ошибка SDK:', err);
-            applyLanguage('en'); // запасной язык
+            applyLanguage('en');
         }
     })();
+
+    async function saveBestScore(score) {
+        if (!ysdk) return;
+        try {
+            const player = ysdk.getPlayer();
+            await player.setData({ bestScore: score });
+            bestScore = score;
+            document.getElementById('bestScoreDisplay').textContent = '🏆 Рекорд: ' + bestScore;
+        } catch (e) {
+            console.warn('Не удалось сохранить рекорд:', e);
+        }
+    }
+
+    async function showAdAndRestart() {
+        if (isAdShowing || !ysdk) {
+            initGame();
+            drawCanvas();
+            return;
+        }
+        try {
+            isAdShowing = true;
+            await ysdk.adv.showFullscreenAdv();
+            initGame();
+            drawCanvas();
+        } catch (e) {
+            console.warn('Реклама не показана (возможно, недоступна):', e);
+            initGame();
+            drawCanvas();
+        } finally {
+            isAdShowing = false;
+        }
+    }
 </script>
 
-<!-- Игровая логика -->
 <script>
     (function() {
         const canvas = document.getElementById('gameCanvas');
@@ -272,6 +322,10 @@
             if (checkCollision(newHead)) {
                 gameOver = true;
                 clearInterval(gameInterval);
+                
+                if (score > bestScore) {
+                    saveBestScore(score);
+                }
                 drawCanvas();
                 return;
             }
@@ -290,11 +344,10 @@
             drawCanvas();
         }
 
-        // Делаем функцию глобальной, чтобы её можно было вызвать из applyLanguage
         window.drawCanvas = function() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Сетка — очень бледная
+            //тут рисуем сетку
             ctx.strokeStyle = '#f0f0f0';
             ctx.lineWidth = 0.5;
             for (let i = 0; i <= GRID_SIZE; i++) {
@@ -307,7 +360,7 @@
                 ctx.stroke();
             }
 
-            // ЕДА — чёрная с жёлтой обводкой
+            // Еда
             ctx.fillStyle = '#000000';
             ctx.strokeStyle = '#FFCC00';
             ctx.lineWidth = 2.5;
@@ -318,7 +371,7 @@
             ctx.fill();
             ctx.stroke();
 
-            // ЗМЕЯ — жёлтая с чёрной обводкой
+            // Змея
             snake.forEach((segment, index) => {
                 const isHead = (index === 0);
                 const x = segment.x * CELL_SIZE + 2;
@@ -333,7 +386,6 @@
                 ctx.fill();
                 ctx.stroke();
 
-                // Глаза — чёрные
                 if (isHead) {
                     ctx.fillStyle = '#000000';
                     let ex1, ey1, ex2, ey2;
@@ -372,7 +424,6 @@
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
 
-                // Используем локализованные тексты с fallback на русский
                 const texts = window.gameTexts || {
                     gameOver: '💀 ИГРА ОКОНЧЕНА',
                     win: '🏆 ПОБЕДА!',
@@ -400,6 +451,12 @@
 
         function handleKey(e) {
             const code = e.code;
+            // Блокируем ввод для рекламы
+            if (isAdShowing) {
+                e.preventDefault();
+                return;
+            }
+
             if (code.startsWith('Arrow') || code === 'Space' || 
                 code === 'KeyW' || code === 'KeyA' || code === 'KeyS' || code === 'KeyD') {
                 e.preventDefault();
@@ -407,8 +464,7 @@
 
             if (code === 'Space') {
                 if (gameOver) {
-                    initGame();
-                    drawCanvas();
+                    showAdAndRestart();
                 }
                 return;
             }
@@ -452,7 +508,7 @@
         window.addEventListener('keydown', handleKey);
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-        // Запуск игры
+        // Запуск игры бро
         initGame();
         drawCanvas();
     })();
