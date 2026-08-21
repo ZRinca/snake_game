@@ -7,10 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <style>
-        * {
-            box-sizing: border-box;
-            user-select: none;
-        }
+        * { box-sizing: border-box; user-select: none; }
         body {
             margin: 0;
             min-height: 100vh;
@@ -22,7 +19,7 @@
         }
         .game-wrapper {
             background: #ffffff;
-            padding: 20px 20px 20px;
+            padding: 20px;
             text-align: center;
             max-width: 500px;
             width: 100%;
@@ -36,6 +33,7 @@
             aspect-ratio: 1 / 1;
             max-width: 400px;
             touch-action: none;
+            cursor: pointer;
         }
         .info {
             display: flex;
@@ -55,7 +53,6 @@
             border-radius: 40px;
             color: #FFCC00;
             font-weight: 700;
-            letter-spacing: 0.5px;
         }
         .restart-hint {
             font-size: 14px;
@@ -76,14 +73,25 @@
             color: #000;
             margin-top: 2px;
         }
+        .button-restart {
+            margin-top: 12px;
+            padding: 10px 24px;
+            font-size: 18px;
+            font-weight: 600;
+            background: #000000;
+            color: #FFCC00;
+            border: none;
+            border-radius: 40px;
+            cursor: pointer;
+            touch-action: manipulation;
+            transition: 0.2s;
+        }
+        .button-restart:hover {
+            background: #333333;
+        }
         @media (max-width: 480px) {
-            .game-wrapper {
-                padding: 12px 12px 16px;
-            }
-            .info {
-                font-size: 15px;
-                padding: 6px 0;
-            }
+            .game-wrapper { padding: 12px; }
+            .info { font-size: 15px; }
         }
     </style>
 </head>
@@ -97,6 +105,8 @@
         </span>
     </div>
     <div class="best-score" id="bestScoreDisplay">🏆 Рекорд: 0</div>
+    <!-- ДОБАВЛЕНА КНОПКА -->
+    <button class="button-restart" id="restartButton">▶ Начать / Рестарт</button>
 </div>
 
 <script src="/sdk.js"></script>
@@ -105,9 +115,9 @@
     let ysdk = null;
     let bestScore = 0;
     let isAdShowing = false;
+    let lang = 'ru';
 
-    var lang = 'ru';
-
+    // ---- Языковые настройки ----
     function applyLanguage(lang) {
         const texts = {
             'ru': {
@@ -116,7 +126,10 @@
                 controls: 'стрелки',
                 gameOver: '💀 ИГРА ОКОНЧЕНА',
                 win: '🏆 ПОБЕДА!',
-                restartMsg: 'Нажми ПРОБЕЛ для рестарта'
+                restartMsg: 'Нажми ПРОБЕЛ для рестарта',
+                startMsg: 'Нажмите ПРОБЕЛ или кликните, чтобы начать',
+                buttonStart: '▶ Начать',
+                buttonRestart: '🔄 Рестарт'
             },
             'en': {
                 title: 'Snake',
@@ -124,7 +137,10 @@
                 controls: 'arrows',
                 gameOver: '💀 GAME OVER',
                 win: '🏆 YOU WIN!',
-                restartMsg: 'Press SPACE to restart'
+                restartMsg: 'Press SPACE to restart',
+                startMsg: 'Press SPACE or click to start',
+                buttonStart: '▶ Start',
+                buttonRestart: '🔄 Restart'
             },
             'tr': {
                 title: 'Yılan',
@@ -132,26 +148,58 @@
                 controls: 'oklar',
                 gameOver: '💀 OYUN BİTTİ',
                 win: '🏆 KAZANDIN!',
-                restartMsg: 'Yeniden başlatmak için SPAÇA basın'
+                restartMsg: 'Yeniden başlatmak için SPAÇA basın',
+                startMsg: 'Başlamak için SPAÇA veya tıklayın',
+                buttonStart: '▶ Başla',
+                buttonRestart: '🔄 Yeniden Başlat'
             }
         };
         const t = texts[lang] || texts['en'];
-
         document.title = t.title;
         document.getElementById('restart_button_lang').textContent = t.restart;
         document.getElementById('controller_button_lang').textContent = t.controls;
-
         window.gameTexts = {
             gameOver: t.gameOver,
             win: t.win,
-            restart: t.restartMsg
+            restart: t.restartMsg,
+            start: t.startMsg,
+            buttonStart: t.buttonStart,
+            buttonRestart: t.buttonRestart
         };
+        // Обновим текст кнопки
+        updateButtonText();
+        if (typeof drawCanvas === 'function') drawCanvas();
+    }
 
-        if (typeof drawCanvas === 'function') {
-            drawCanvas();
+    function updateButtonText() {
+        const btn = document.getElementById('restartButton');
+        if (!btn) return;
+        const texts = window.gameTexts || {};
+        // Если игра ещё не началась, показываем "Начать", иначе "Рестарт" (но будет меняться)
+        // Будем обновлять при каждом вызове
+        if (typeof gameStarted !== 'undefined' && !gameStarted) {
+            btn.textContent = texts.buttonStart || '▶ Начать';
+        } else {
+            btn.textContent = texts.buttonRestart || '🔄 Рестарт';
         }
     }
 
+    // ---- Загрузка рекорда из localStorage (fallback) ----
+    function loadBestScoreLocal() {
+        try {
+            const saved = localStorage.getItem('snakeBestScore');
+            if (saved) return Number(saved) || 0;
+        } catch (_) {}
+        return 0;
+    }
+
+    function saveBestScoreLocal(score) {
+        try {
+            localStorage.setItem('snakeBestScore', String(score));
+        } catch (_) {}
+    }
+
+    // ---- Инициализация SDK ----
     (async function() {
         try {
             ysdk = await YaGames.init();
@@ -159,57 +207,63 @@
             applyLanguage(lang);
             console.log('SDK готов, язык:', lang);
 
-            if (ysdk.features && ysdk.features.LoadingAPI) {
+            if (ysdk.features?.LoadingAPI) {
                 await ysdk.features.LoadingAPI.ready();
                 console.log('Game Ready API вызван');
             }
 
+            let loaded = false;
             try {
                 const player = ysdk.getPlayer();
-                const data = await player.getData(['bestScore']);
-                if (data && data.bestScore !== undefined) {
-                    bestScore = Number(data.bestScore) || 0;
+                if (player && typeof player.getData === 'function') {
+                    const data = await player.getData(['bestScore']);
+                    console.log('Загруженные данные из облака:', data);
+                    if (data && data.bestScore !== undefined) {
+                        bestScore = Number(data.bestScore) || 0;
+                        loaded = true;
+                    }
+                } else {
+                    console.warn('Метод getData недоступен для player');
                 }
-                document.getElementById('bestScoreDisplay').textContent = '🏆 Рекорд: ' + bestScore;
             } catch (e) {
-                console.warn('Не удалось загрузить рекорд:', e);
+                console.warn('Ошибка загрузки рекорда из облака:', e);
             }
 
+            if (!loaded) {
+                bestScore = loadBestScoreLocal();
+                console.log('Загружен рекорд из localStorage:', bestScore);
+            }
+
+            document.getElementById('bestScoreDisplay').textContent = '🏆 Рекорд: ' + bestScore;
         } catch (err) {
             console.error('Ошибка SDK:', err);
             applyLanguage('en');
+            bestScore = loadBestScoreLocal();
+            document.getElementById('bestScoreDisplay').textContent = '🏆 Рекорд: ' + bestScore;
         }
     })();
 
+    // ---- Сохранение рекорда (облако + localStorage) ----
     async function saveBestScore(score) {
-        if (!ysdk) return;
-        try {
-            const player = ysdk.getPlayer();
-            await player.setData({ bestScore: score });
-            bestScore = score;
-            document.getElementById('bestScoreDisplay').textContent = '🏆 Рекорд: ' + bestScore;
-        } catch (e) {
-            console.warn('Не удалось сохранить рекорд:', e);
-        }
-    }
+        saveBestScoreLocal(score);
+        bestScore = score;
+        document.getElementById('bestScoreDisplay').textContent = '🏆 Рекорд: ' + bestScore;
 
-    async function showAdAndRestart() {
-        if (isAdShowing || !ysdk) {
-            initGame();
-            drawCanvas();
+        if (!ysdk) {
+            console.warn('SDK не инициализирован, рекорд сохранён только локально');
             return;
         }
+
         try {
-            isAdShowing = true;
-            await ysdk.adv.showFullscreenAdv();
-            initGame();
-            drawCanvas();
+            const player = ysdk.getPlayer();
+            if (player && typeof player.setData === 'function') {
+                await player.setData({ bestScore: score });
+                console.log('Рекорд сохранён в облако:', score);
+            } else {
+                console.warn('Метод setData недоступен, рекорд только локально');
+            }
         } catch (e) {
-            console.warn('Реклама не показана (возможно, недоступна):', e);
-            initGame();
-            drawCanvas();
-        } finally {
-            isAdShowing = false;
+            console.error('Ошибка сохранения рекорда в облако:', e);
         }
     }
 </script>
@@ -219,6 +273,7 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreSpan = document.getElementById('scoreDisplay');
+        const restartBtn = document.getElementById('restartButton');
 
         const GRID_SIZE = 20;
         const CELL_SIZE = canvas.width / GRID_SIZE;
@@ -233,7 +288,26 @@
         let gameInterval = null;
         const MOVE_INTERVAL_MS = 140;
 
+        let gameStarted = false;
+
+        // ---- Функция для обновления текста кнопки ----
+        function updateButtonLabel() {
+            const texts = window.gameTexts || {};
+            if (!gameStarted) {
+                restartBtn.textContent = texts.buttonStart || '▶ Начать';
+            } else {
+                restartBtn.textContent = texts.buttonRestart || '🔄 Рестарт';
+            }
+        }
+
+        // ---- Инициализация игры (полный сброс) ----
         function initGame() {
+            console.log('initGame вызван');
+            if (gameInterval) {
+                clearInterval(gameInterval);
+                gameInterval = null;
+            }
+
             snake = [
                 { x: 9, y: 10 },
                 { x: 8, y: 10 },
@@ -244,39 +318,62 @@
             score = 0;
             gameOver = false;
             winFlag = false;
+            gameStarted = true;
             updateScore();
             spawnFood();
-            clearInterval(gameInterval);
             gameInterval = setInterval(gameTick, MOVE_INTERVAL_MS);
+            window.gameInterval = gameInterval;
+            updateButtonLabel();
+            drawCanvas();
         }
 
+        // ---- Функция перезапуска (вызывается извне) ----
+        function restartGame() {
+            console.log('restartGame вызван');
+            if (gameInterval) {
+                clearInterval(gameInterval);
+                gameInterval = null;
+            }
+            initGame(); // initGame уже вызывает drawCanvas
+
+            // Показываем рекламу асинхронно
+            if (ysdk && ysdk.adv && typeof ysdk.adv.showFullscreenAdv === 'function' && !isAdShowing) {
+                isAdShowing = true;
+                ysdk.adv.showFullscreenAdv()
+                    .catch(e => console.warn('Реклама не показана:', e))
+                    .finally(() => { isAdShowing = false; });
+            }
+        }
+
+        // Делаем restartGame доступной глобально для кнопки и обработчиков
+        window.restartGame = restartGame;
+
+        // ---- Остальные игровые функции ----
         function spawnFood() {
             const totalCells = GRID_SIZE * GRID_SIZE;
             if (snake.length >= totalCells) {
                 winFlag = true;
                 gameOver = true;
-                clearInterval(gameInterval);
+                if (gameInterval) clearInterval(gameInterval);
                 return;
             }
             const occupied = new Set(snake.map(cell => `${cell.x},${cell.y}`));
             if (occupied.size === totalCells) {
                 winFlag = true;
                 gameOver = true;
-                clearInterval(gameInterval);
+                if (gameInterval) clearInterval(gameInterval);
                 return;
             }
             let freeCells = [];
             for (let i = 0; i < GRID_SIZE; i++) {
                 for (let j = 0; j < GRID_SIZE; j++) {
-                    if (!occupied.has(`${i},${j}`)) {
-                        freeCells.push({ x: i, y: j });
-                    }
+                    if (!occupied.has(`${i},${j}`)) freeCells.push({ x: i, y: j });
                 }
             }
             if (freeCells.length === 0) {
                 winFlag = true;
                 gameOver = true;
-                clearInterval(gameInterval);
+                if (gameInterval) clearInterval(gameInterval);
                 return;
             }
             const rand = Math.floor(Math.random() * freeCells.length);
@@ -288,19 +385,15 @@
         }
 
         function checkCollision(head) {
-            if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-                return true;
-            }
+            if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) return true;
             for (let i = 1; i < snake.length; i++) {
-                if (snake[i].x === head.x && snake[i].y === head.y) {
-                    return true;
-                }
+                if (snake[i].x === head.x && snake[i].y === head.y) return true;
             }
             return false;
         }
 
         function gameTick() {
-            if (gameOver) return;
+            if (gameOver || !gameStarted) return;
 
             direction = nextDirection;
             const head = snake[0];
@@ -315,17 +408,15 @@
 
             const isEating = (newHead.x === food.x && newHead.y === food.y);
             let newSnake = [newHead, ...snake];
-            if (!isEating) {
-                newSnake.pop();
-            }
+            if (!isEating) newSnake.pop();
 
             if (checkCollision(newHead)) {
                 gameOver = true;
-                clearInterval(gameInterval);
-                
+                if (gameInterval) clearInterval(gameInterval);
                 if (score > bestScore) {
                     saveBestScore(score);
                 }
+                updateButtonLabel();
                 drawCanvas();
                 return;
             }
@@ -337,17 +428,30 @@
                 updateScore();
                 spawnFood();
                 if (gameOver) {
-                    clearInterval(gameInterval);
+                    if (gameInterval) clearInterval(gameInterval);
                 }
             }
 
             drawCanvas();
         }
 
+        // ---- Отрисовка ----
         window.drawCanvas = function() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            //тут рисуем сетку
+            if (!gameStarted) {
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#000000';
+                ctx.font = 'bold 26px "Segoe UI", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const startMsg = window.gameTexts?.start || 'Нажмите ПРОБЕЛ или кликните, чтобы начать';
+                ctx.fillText(startMsg, canvas.width/2, canvas.height/2 - 10);
+                return;
+            }
+
+            // Сетка
             ctx.strokeStyle = '#f0f0f0';
             ctx.lineWidth = 0.5;
             for (let i = 0; i <= GRID_SIZE; i++) {
@@ -391,22 +495,10 @@
                     let ex1, ey1, ex2, ey2;
                     const r = 4;
                     switch (direction) {
-                        case 'RIGHT':
-                            ex1 = x + size - 9; ey1 = y + 5;
-                            ex2 = x + size - 9; ey2 = y + size - 5;
-                            break;
-                        case 'LEFT':
-                            ex1 = x + 7; ey1 = y + 5;
-                            ex2 = x + 7; ey2 = y + size - 5;
-                            break;
-                        case 'UP':
-                            ex1 = x + 5; ey1 = y + 7;
-                            ex2 = x + size - 5; ey2 = y + 7;
-                            break;
-                        case 'DOWN':
-                            ex1 = x + 5; ey1 = y + size - 9;
-                            ex2 = x + size - 5; ey2 = y + size - 9;
-                            break;
+                        case 'RIGHT': ex1 = x + size - 9; ey1 = y + 5; ex2 = x + size - 9; ey2 = y + size - 5; break;
+                        case 'LEFT':  ex1 = x + 7; ey1 = y + 5; ex2 = x + 7; ey2 = y + size - 5; break;
+                        case 'UP':    ex1 = x + 5; ey1 = y + 7; ex2 = x + size - 5; ey2 = y + 7; break;
+                        case 'DOWN':  ex1 = x + 5; ey1 = y + size - 9; ex2 = x + size - 5; ey2 = y + size - 9; break;
                         default: return;
                     }
                     ctx.beginPath();
@@ -416,6 +508,7 @@
                 }
             });
 
+            // Game Over
             if (gameOver) {
                 ctx.fillStyle = 'rgba(255,255,255,0.85)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -437,6 +530,7 @@
             }
         };
 
+        // Полифилл
         if (!CanvasRenderingContext2D.prototype.roundRect) {
             CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, radii) {
                 const r = typeof radii === 'number' ? radii : (radii || 0);
@@ -449,67 +543,86 @@
             };
         }
 
+        // ---- Обработчик клавиш ----
         function handleKey(e) {
-            const code = e.code;
-            // Блокируем ввод для рекламы
             if (isAdShowing) {
                 e.preventDefault();
                 return;
             }
 
-            if (code.startsWith('Arrow') || code === 'Space' || 
-                code === 'KeyW' || code === 'KeyA' || code === 'KeyS' || code === 'KeyD') {
-                e.preventDefault();
-            }
+            const key = e.key;
+            const code = e.code;
 
-            if (code === 'Space') {
+            // Пробел – старт или рестарт
+            if (key === ' ' || key === 'Spacebar' || code === 'Space') {
+                e.preventDefault();
+                console.log('Пробел нажат, gameStarted=', gameStarted, 'gameOver=', gameOver);
+                if (!gameStarted) {
+                    initGame();
+                    return;
+                }
                 if (gameOver) {
-                    showAdAndRestart();
+                    restartGame();
                 }
                 return;
             }
 
-            if (gameOver) return;
+            // Если игра не начата или закончена – остальные клавиши игнорируем
+            if (!gameStarted || gameOver) return;
 
             let newDir = null;
             switch (code) {
                 case 'ArrowUp':
-                case 'KeyW':
-                    newDir = 'UP';
-                    break;
+                case 'KeyW': newDir = 'UP'; break;
                 case 'ArrowDown':
-                case 'KeyS':
-                    newDir = 'DOWN';
-                    break;
+                case 'KeyS': newDir = 'DOWN'; break;
                 case 'ArrowLeft':
-                case 'KeyA':
-                    newDir = 'LEFT';
-                    break;
+                case 'KeyA': newDir = 'LEFT'; break;
                 case 'ArrowRight':
-                case 'KeyD':
-                    newDir = 'RIGHT';
-                    break;
-                default:
-                    return;
+                case 'KeyD': newDir = 'RIGHT'; break;
+                default: return;
             }
 
-            const opposite = {
-                'UP': 'DOWN',
-                'DOWN': 'UP',
-                'LEFT': 'RIGHT',
-                'RIGHT': 'LEFT'
-            };
-            if (opposite[newDir] === direction) {
-                return;
-            }
+            const opposite = { 'UP': 'DOWN', 'DOWN': 'UP', 'LEFT': 'RIGHT', 'RIGHT': 'LEFT' };
+            if (opposite[newDir] === direction) return;
             nextDirection = newDir;
         }
 
+        // ---- Привязка событий ----
         window.addEventListener('keydown', handleKey);
+        document.addEventListener('keydown', handleKey);
+
+        // Клик по канвасу – старт или рестарт
+        canvas.addEventListener('click', function(e) {
+            console.log('Клик по canvas, gameStarted=', gameStarted, 'gameOver=', gameOver);
+            if (!gameStarted) {
+                initGame();
+                return;
+            }
+            if (gameOver) {
+                restartGame();
+            }
+        });
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-        // Запуск игры бро
-        initGame();
+        // Кнопка "Начать / Рестарт"
+        restartBtn.addEventListener('click', function() {
+            console.log('Кнопка нажата, gameStarted=', gameStarted, 'gameOver=', gameOver);
+            if (!gameStarted) {
+                initGame();
+            } else if (gameOver) {
+                restartGame();
+            } else {
+                // Если игра активна – ничего не делаем (или можно перезапустить?)
+                // Можно предложить перезапуск по желанию, но пока оставим как есть
+                // (но можно вызвать restartGame для принудительного сброса)
+                // restartGame(); // раскомментируйте, если хотите перезапуск по кнопке всегда
+            }
+        });
+
+        // ---- Старт: показываем стартовый экран ----
+        gameStarted = false;
+        updateButtonLabel();
         drawCanvas();
     })();
 </script>
